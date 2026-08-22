@@ -1,4 +1,4 @@
-const CACHE_NAME = "training-app-v4";
+const CACHE_NAME = "training-app-v5";
 const ASSETS = [
   "./",
   "./index.html",
@@ -10,7 +10,10 @@ const ASSETS = [
   "./exercise-calories.js",
   "./charts.js",
   "./manifest.json",
-  "./icons/icon.svg"
+  "./icons/icon.svg",
+  "./icons/icon-192.png",
+  "./icons/icon-512.png",
+  "./icons/apple-touch-icon.png"
 ];
 
 self.addEventListener("install", (event) => {
