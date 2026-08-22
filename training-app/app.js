@@ -120,6 +120,21 @@ function computeCalorieTarget() {
   return { bmr, tdee, target, weight };
 }
 
+// 目標体重までの目安ペース（現在の摂取カロリー赤字設定から、7700kcal/kgの目安で概算）
+function goalProjection() {
+  const s = state.settings;
+  const wLogs = sortedWeightLogs();
+  if (!s.goalWeightKg || wLogs.length === 0) return null;
+  const current = wLogs[wLogs.length - 1].weight;
+  const toLoseKg = current - s.goalWeightKg;
+  if (toLoseKg <= 0) return { current, goal: s.goalWeightKg, reached: true };
+  const weeklyDeficitKcal = (s.deficit || 0) * 7;
+  if (weeklyDeficitKcal <= 0) return { current, goal: s.goalWeightKg, toLoseKg, reached: false, weeks: null };
+  const weeklyRateKg = weeklyDeficitKcal / FAT_KCAL_PER_KG;
+  const weeks = Math.ceil(toLoseKg / weeklyRateKg);
+  return { current, goal: s.goalWeightKg, toLoseKg, weeklyRateKg, weeks, reached: false };
+}
+
 function filterByRange(logsSortedAsc, days) {
   if (days >= 9999) return logsSortedAsc;
   const cutoff = new Date();
@@ -221,14 +236,29 @@ function renderTodaySummary(iso) {
   }
 
   const todayCal = state.mealLogs.filter(m => m.date === iso).reduce((s, m) => s + (m.calories || 0), 0);
+  const exKcal = exerciseCaloriesForDate(iso);
   const calc = computeCalorieTarget();
   let calHtml;
   if (calc) {
-    const remain = Math.round(calc.target - todayCal);
+    const adjustedTarget = calc.target + exKcal;
+    const remain = Math.round(adjustedTarget - todayCal);
     const cls = remain < 0 ? "over" : "under";
-    calHtml = `<div class="value">${todayCal}<span style="font-size:12px;color:var(--muted)"> / ${Math.round(calc.target)}kcal</span></div><div class="sub ${cls}">${remain < 0 ? "+" + Math.abs(remain) + " 超過" : remain + " 残り"}</div>`;
+    const budgetSub = exKcal > 0 ? `目標${Math.round(calc.target)} + 運動${Math.round(exKcal)}kcal` : `目標 ${Math.round(calc.target)}kcal`;
+    calHtml = `<div class="value">${todayCal}<span style="font-size:12px;color:var(--muted)"> / ${Math.round(adjustedTarget)}kcal</span></div><div class="sub ${cls}">${remain < 0 ? "+" + Math.abs(remain) + " 超過" : remain + " 残り"}</div><div class="sub" style="color:var(--muted)">${budgetSub}</div>`;
   } else {
     calHtml = `<div class="value">${todayCal}kcal</div><div class="sub">設定で目標を計算できます</div>`;
+  }
+
+  const proj = goalProjection();
+  let goalHtml = `<div class="value" style="font-size:13px;color:var(--muted)">目標体重が未設定</div>`;
+  if (proj) {
+    if (proj.reached) {
+      goalHtml = `<div class="value" style="font-size:16px">達成 🎉</div>`;
+    } else if (proj.weeks != null) {
+      goalHtml = `<div class="value">-${proj.toLoseKg.toFixed(1)}kg</div><div class="sub">今のペースで約${proj.weeks}週間</div>`;
+    } else {
+      goalHtml = `<div class="value">-${proj.toLoseKg.toFixed(1)}kg</div><div class="sub">設定でペースを計算</div>`;
+    }
   }
 
   const day = state.plan[planIndexForDate(new Date())];
@@ -236,33 +266,73 @@ function renderTodaySummary(iso) {
   el.innerHTML = `
     <div class="summary-item"><div class="label">体重</div>${weightHtml}</div>
     <div class="summary-item"><div class="label">本日の摂取カロリー</div>${calHtml}</div>
+    <div class="summary-item"><div class="label">目標体重まで</div>${goalHtml}</div>
     <div class="summary-item"><div class="label">今日のメニュー</div><div class="value" style="font-size:15px">${day.day}曜日・${escapeHtml(day.label)}</div></div>
   `;
 }
 
+function latestBodyWeight() {
+  const logs = sortedWeightLogs();
+  return logs.length ? logs[logs.length - 1].weight : null;
+}
+
+function exerciseCaloriesForDate(iso) {
+  return state.workoutLogs.filter(l => l.date === iso).reduce((s, l) => s + (l.calories || 0), 0);
+}
+
 function exerciseRowHTML(ex, i, iso) {
+  const kind = ex.kind || "strength";
   const todays = state.workoutLogs.filter(l => l.date === iso && l.exerciseName === ex.name);
   const doneToday = todays.length > 0;
-  const setsCount = ex.sets || 3;
-  let rows = "";
-  for (let s = 0; s < setsCount; s++) {
-    rows += `
-      <div class="set-row">
-        <div class="set-idx">${s + 1}</div>
-        <input type="number" inputmode="decimal" placeholder="重量kg" data-role="weight">
-        <input type="number" inputmode="numeric" placeholder="回数" data-role="reps">
-      </div>`;
+  const last = todays[todays.length - 1];
+
+  let panelBody, lastNote = "";
+
+  if (kind === "treadmill") {
+    panelBody = `
+      <div class="cardio-row">
+        <label>速度(km/h)<input type="number" inputmode="decimal" step="0.1" data-role="speed"></label>
+        <label>傾斜(%)<input type="number" inputmode="decimal" step="0.5" data-role="incline" value="0"></label>
+        <label>時間(分)<input type="number" inputmode="numeric" data-role="duration"></label>
+      </div>
+      <div class="set-log-actions"><button class="btn btn-primary btn-sm" data-role="save">保存</button></div>`;
+    if (doneToday) {
+      lastNote = `✓ 本日記録済み（${last.speedKmh}km/h・傾斜${last.inclinePercent}%・${last.durationMin}分${last.calories ? `・約${Math.round(last.calories)}kcal` : ""}）`;
+    }
+  } else if (kind === "cardio") {
+    panelBody = `
+      <div class="cardio-row">
+        <label>時間(分)<input type="number" inputmode="numeric" data-role="duration"></label>
+      </div>
+      <div class="set-log-actions"><button class="btn btn-primary btn-sm" data-role="save">保存</button></div>`;
+    if (doneToday) {
+      lastNote = `✓ 本日記録済み（${last.durationMin}分${last.calories ? `・約${Math.round(last.calories)}kcal` : ""}）`;
+    }
+  } else {
+    const setsCount = ex.sets || 3;
+    let rows = "";
+    for (let s = 0; s < setsCount; s++) {
+      rows += `
+        <div class="set-row">
+          <div class="set-idx">${s + 1}</div>
+          <input type="number" inputmode="decimal" placeholder="重量kg" data-role="weight">
+          <input type="number" inputmode="numeric" placeholder="回数" data-role="reps">
+        </div>`;
+    }
+    panelBody = `${rows}<div class="set-log-actions"><button class="btn btn-sm" data-role="addset">＋セット追加</button><button class="btn btn-primary btn-sm" data-role="save">保存</button></div>`;
+    if (doneToday) {
+      const setsText = last.sets.map(s => `${s.weight}kg×${s.reps}`).join(" / ");
+      lastNote = `✓ 本日記録済み（${setsText}${last.calories ? `・約${Math.round(last.calories)}kcal` : ""}）`;
+    }
   }
-  const lastNote = doneToday
-    ? `<div class="last-logged">✓ 本日記録済み（${todays[todays.length - 1].sets.map(s => `${s.weight}kg×${s.reps}`).join(" / ")}）</div>`
-    : "";
+
   return `
     <div class="exercise-row" data-index="${i}">
       <div class="exercise-head">
         <div>
           <div class="exercise-name">${escapeHtml(ex.name)}</div>
           <div class="exercise-target">${ex.sets}セット × ${escapeHtml(String(ex.reps))}　<span style="opacity:.7">${escapeHtml(ex.equipment || "")}</span></div>
-          ${lastNote}
+          ${lastNote ? `<div class="last-logged">${lastNote}</div>` : ""}
         </div>
         <div class="exercise-actions">
           <a class="yt-badge" href="${effectiveYtLink(ex)}" target="_blank" rel="noopener">▶ YT</a>
@@ -270,16 +340,13 @@ function exerciseRowHTML(ex, i, iso) {
         </div>
       </div>
       <div class="set-log-panel" data-role="panel">
-        ${rows}
-        <div class="set-log-actions">
-          <button class="btn btn-sm" data-role="addset">＋セット追加</button>
-          <button class="btn btn-primary btn-sm" data-role="save">保存</button>
-        </div>
+        ${panelBody}
       </div>
     </div>`;
 }
 
 function setupExerciseRow(ex, i, iso) {
+  const kind = ex.kind || "strength";
   const row = document.querySelector(`#todayPlan .exercise-row[data-index="${i}"]`);
   if (!row) return;
   const panel = row.querySelector('[data-role="panel"]');
@@ -288,25 +355,49 @@ function setupExerciseRow(ex, i, iso) {
     panel.classList.toggle("open");
   });
 
-  row.querySelector('[data-role="addset"]').addEventListener("click", () => {
-    const idx = panel.querySelectorAll(".set-row").length;
-    const div = document.createElement("div");
-    div.className = "set-row";
-    div.innerHTML = `<div class="set-idx">${idx + 1}</div><input type="number" inputmode="decimal" placeholder="重量kg" data-role="weight"><input type="number" inputmode="numeric" placeholder="回数" data-role="reps">`;
-    panel.insertBefore(div, panel.querySelector(".set-log-actions"));
-  });
+  const addSetBtn = row.querySelector('[data-role="addset"]');
+  if (addSetBtn) {
+    addSetBtn.addEventListener("click", () => {
+      const idx = panel.querySelectorAll(".set-row").length;
+      const div = document.createElement("div");
+      div.className = "set-row";
+      div.innerHTML = `<div class="set-idx">${idx + 1}</div><input type="number" inputmode="decimal" placeholder="重量kg" data-role="weight"><input type="number" inputmode="numeric" placeholder="回数" data-role="reps">`;
+      panel.insertBefore(div, panel.querySelector(".set-log-actions"));
+    });
+  }
 
   row.querySelector('[data-role="save"]').addEventListener("click", () => {
-    const sets = [];
-    panel.querySelectorAll(".set-row").forEach(r => {
-      const w = parseFloat(r.querySelector('[data-role="weight"]').value);
-      const reps = parseInt(r.querySelector('[data-role="reps"]').value, 10);
-      if (!isNaN(w) && !isNaN(reps)) sets.push({ weight: w, reps });
-    });
-    if (sets.length === 0) { toast("重量と回数を入力してください"); return; }
-    state.workoutLogs.push({ id: uid(), date: iso, day: state.plan[planIndexForDate(new Date())].day, exerciseName: ex.name, sets });
+    const bodyWeight = latestBodyWeight();
+    const day = state.plan[planIndexForDate(new Date())].day;
+    let entry;
+
+    if (kind === "treadmill") {
+      const speed = parseFloat(panel.querySelector('[data-role="speed"]').value);
+      const incline = parseFloat(panel.querySelector('[data-role="incline"]').value) || 0;
+      const duration = parseFloat(panel.querySelector('[data-role="duration"]').value);
+      if (isNaN(speed) || speed <= 0 || isNaN(duration) || duration <= 0) { toast("速度と時間を入力してください"); return; }
+      const calories = bodyWeight ? treadmillCalories(bodyWeight, speed, incline, duration) : null;
+      entry = { id: uid(), date: iso, day, exerciseName: ex.name, kind, speedKmh: speed, inclinePercent: incline, durationMin: duration, calories };
+    } else if (kind === "cardio") {
+      const duration = parseFloat(panel.querySelector('[data-role="duration"]').value);
+      if (isNaN(duration) || duration <= 0) { toast("時間を入力してください"); return; }
+      const calories = bodyWeight ? cardioCalories(bodyWeight, duration) : null;
+      entry = { id: uid(), date: iso, day, exerciseName: ex.name, kind, durationMin: duration, calories };
+    } else {
+      const sets = [];
+      panel.querySelectorAll(".set-row").forEach(r => {
+        const w = parseFloat(r.querySelector('[data-role="weight"]').value);
+        const reps = parseInt(r.querySelector('[data-role="reps"]').value, 10);
+        if (!isNaN(w) && !isNaN(reps)) sets.push({ weight: w, reps });
+      });
+      if (sets.length === 0) { toast("重量と回数を入力してください"); return; }
+      const calories = bodyWeight ? sets.length * strengthSetCalories(bodyWeight) : null;
+      entry = { id: uid(), date: iso, day, exerciseName: ex.name, kind, sets, calories };
+    }
+
+    state.workoutLogs.push(entry);
     saveJSON(STORE_KEYS.workouts, state.workoutLogs);
-    toast("記録しました");
+    toast(bodyWeight ? "記録しました" : "記録しました（体重を記録すると消費カロリーも計算されます）");
     renderToday();
   });
 }
@@ -391,6 +482,8 @@ function renderTodayMeals(iso) {
   const meals = state.mealLogs.filter(m => m.date === iso);
   const total = meals.reduce((s, m) => s + (m.calories || 0), 0);
   const calc = computeCalorieTarget();
+  const exKcal = exerciseCaloriesForDate(iso);
+  const adjustedTarget = calc ? calc.target + exKcal : null;
 
   const chips = ["朝", "昼", "夜", "間食"].map(t => `<button class="chip ${t === selectedMealType ? "active" : ""}" data-meal-type="${t}">${t}</button>`).join("");
 
@@ -404,9 +497,9 @@ function renderTodayMeals(iso) {
     ? `<div class="empty-state">まだ記録がありません</div>`
     : meals.map(m => mealItemHTML(m)).join("");
 
-  const totalRowCls = calc && total > calc.target ? "over" : "under";
-  const totalRow = calc
-    ? `<div class="today-total-row"><span>合計</span><span class="${totalRowCls}">${total} / ${Math.round(calc.target)}kcal</span></div>`
+  const totalRowCls = adjustedTarget != null && total > adjustedTarget ? "over" : "under";
+  const totalRow = adjustedTarget != null
+    ? `<div class="today-total-row"><span>合計${exKcal > 0 ? `（運動+${Math.round(exKcal)}kcal込み）` : ""}</span><span class="${totalRowCls}">${total} / ${Math.round(adjustedTarget)}kcal</span></div>`
     : `<div class="today-total-row"><span>合計</span><span>${total}kcal</span></div>`;
 
   el.innerHTML = `
@@ -506,6 +599,11 @@ function planDayCardHTML(day, di) {
       <div class="plan-ex-edit-row2">
         <input type="number" value="${ex.sets}" data-field="sets" placeholder="セット">
         <input type="text" value="${escapeHtml(String(ex.reps))}" data-field="reps" placeholder="回数">
+        <select data-field="kind">
+          <option value="strength" ${(ex.kind || "strength") === "strength" ? "selected" : ""}>筋トレ</option>
+          <option value="cardio" ${ex.kind === "cardio" ? "selected" : ""}>有酸素</option>
+          <option value="treadmill" ${ex.kind === "treadmill" ? "selected" : ""}>ランニングマシン</option>
+        </select>
       </div>
       <div class="plan-ex-edit-row3">
         <input type="text" value="${escapeHtml(ex.customYtUrl || "")}" data-field="customYtUrl" placeholder="YouTubeリンク（任意・空欄なら自動検索）">
@@ -553,6 +651,7 @@ function setupPlanDayEdit(day, di) {
     row.querySelector('[data-field="name"]').addEventListener("input", e => { day.exercises[ei].name = e.target.value; saveJSON(STORE_KEYS.plan, state.plan); syncYtPreview(row, day.exercises[ei]); });
     row.querySelector('[data-field="sets"]').addEventListener("input", e => { day.exercises[ei].sets = parseInt(e.target.value, 10) || 0; saveJSON(STORE_KEYS.plan, state.plan); });
     row.querySelector('[data-field="reps"]').addEventListener("input", e => { day.exercises[ei].reps = e.target.value; saveJSON(STORE_KEYS.plan, state.plan); });
+    row.querySelector('[data-field="kind"]').addEventListener("change", e => { day.exercises[ei].kind = e.target.value; saveJSON(STORE_KEYS.plan, state.plan); });
     row.querySelector('[data-field="customYtUrl"]').addEventListener("input", e => { day.exercises[ei].customYtUrl = e.target.value; saveJSON(STORE_KEYS.plan, state.plan); syncYtPreview(row, day.exercises[ei]); });
     row.querySelector('[data-role="delex"]').addEventListener("click", () => {
       day.exercises.splice(ei, 1);
@@ -569,13 +668,13 @@ function setupPlanDayEdit(day, di) {
     const list = EXERCISE_CATALOG[catCategory.value] || [];
     const picked = list[parseInt(catExercise.value, 10)];
     if (!picked) return;
-    day.exercises.push({ name: picked.name, sets: picked.sets, reps: picked.reps, equipment: picked.equipment || "", customYtUrl: "" });
+    day.exercises.push({ name: picked.name, sets: picked.sets, reps: picked.reps, equipment: picked.equipment || "", customYtUrl: "", kind: picked.kind || "strength" });
     saveJSON(STORE_KEYS.plan, state.plan);
     renderPlan();
   });
 
   card.querySelector('[data-role="addex"]').addEventListener("click", () => {
-    day.exercises.push({ name: "新しい種目", sets: 3, reps: "10", equipment: "", customYtUrl: "" });
+    day.exercises.push({ name: "新しい種目", sets: 3, reps: "10", equipment: "", customYtUrl: "", kind: "strength" });
     saveJSON(STORE_KEYS.plan, state.plan);
     renderPlan();
   });
@@ -625,7 +724,15 @@ function recordItemHTML(item) {
   let main = "", sub = "", extra = "";
   if (item.type === "workout") {
     main = escapeHtml(item.data.exerciseName);
-    sub = item.data.sets.map(s => `${s.weight}kg×${s.reps}`).join(" / ");
+    const kind = item.data.kind || "strength";
+    if (kind === "treadmill") {
+      sub = `${item.data.speedKmh}km/h・傾斜${item.data.inclinePercent}%・${item.data.durationMin}分`;
+    } else if (kind === "cardio") {
+      sub = `${item.data.durationMin}分`;
+    } else {
+      sub = (item.data.sets || []).map(s => `${s.weight}kg×${s.reps}`).join(" / ");
+    }
+    if (item.data.calories) sub += `${sub ? "・" : ""}約${Math.round(item.data.calories)}kcal`;
   } else if (item.type === "weight") {
     main = `${item.data.weight} kg`;
   } else if (item.type === "meal") {
@@ -694,8 +801,20 @@ function renderLiftChart() {
   sel.value = names.includes(prevValue) ? prevValue : names[0];
   const chosen = sel.value;
   const logs = state.workoutLogs.filter(l => l.exerciseName === chosen).sort((a, b) => a.date.localeCompare(b.date));
-  const points = logs.map(l => ({ label: formatShortDate(l.date), value: Math.max(...l.sets.map(s => s.weight)) }));
-  renderChart(document.getElementById("liftChart"), points, { type: "line", color: "#a855f7", unit: "kg" });
+  const kind = logs.length ? (logs[logs.length - 1].kind || "strength") : "strength";
+
+  let points, opts, label;
+  if (kind === "strength") {
+    points = logs.filter(l => l.sets && l.sets.length).map(l => ({ label: formatShortDate(l.date), value: Math.max(...l.sets.map(s => s.weight)) }));
+    opts = { type: "line", color: "#a855f7", unit: "kg" };
+    label = "セット中の最大重量(kg)の推移です。";
+  } else {
+    points = logs.filter(l => l.calories != null).map(l => ({ label: formatShortDate(l.date), value: Math.round(l.calories) }));
+    opts = { type: "line", color: "#a855f7", unit: "kcal" };
+    label = "推定消費カロリー(kcal)の推移です。";
+  }
+  document.getElementById("liftChartLabel").textContent = label;
+  renderChart(document.getElementById("liftChart"), points, opts);
 }
 
 // ---------- settings ----------
@@ -718,7 +837,18 @@ function updateCalorieTargetResult() {
     el.textContent = "身長・年齢・性別と、体重の記録が揃うと目標カロリーを計算します。";
     return;
   }
-  el.textContent = `現在の体重(${calc.weight}kg)から算出: 基礎代謝 約${Math.round(calc.bmr)}kcal / 消費目安 約${Math.round(calc.tdee)}kcal → 目標摂取 約${Math.round(calc.target)}kcal`;
+  let text = `現在の体重(${calc.weight}kg)から算出: 基礎代謝 約${Math.round(calc.bmr)}kcal / 消費目安 約${Math.round(calc.tdee)}kcal → 目標摂取 約${Math.round(calc.target)}kcal\n※ 筋トレ・有酸素をした日は、その日の消費カロリー分だけ目標摂取カロリーに加算されます（今日タブに表示）。`;
+  const proj = goalProjection();
+  if (proj) {
+    if (proj.reached) {
+      text += `\n\n目標体重(${proj.goal}kg)にすでに到達しています🎉`;
+    } else if (proj.weeks != null) {
+      text += `\n\n目標体重(${proj.goal}kg)まで残り${proj.toLoseKg.toFixed(1)}kg。今の設定（1日${state.settings.deficit}kcal赤字）のペースだと、約${proj.weeks}週間が目安です。`;
+    } else {
+      text += `\n\n目標体重(${proj.goal}kg)まで残り${proj.toLoseKg.toFixed(1)}kg。減量ペース（赤字kcal）を設定するとおおよその期間を計算します。`;
+    }
+  }
+  el.textContent = text;
 }
 
 // ---------- init ----------

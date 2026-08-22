@@ -199,6 +199,17 @@ body {
   margin-top: 8px;
 }
 
+.cardio-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.cardio-row label {
+  flex: 1;
+  min-width: 80px;
+  margin-bottom: 0;
+}
+
 .last-logged {
   font-size: 11px;
   color: var(--green);
@@ -374,6 +385,8 @@ label input, label select, label textarea {
   font-size: 13px;
   color: var(--accent2);
   min-height: 1.4em;
+  white-space: pre-line;
+  line-height: 1.6;
 }
 
 /* tab bar */
@@ -477,9 +490,20 @@ label input, label select, label textarea {
   display: flex;
   gap: 6px;
   margin-bottom: 6px;
+  flex-wrap: wrap;
 }
-.plan-ex-edit-row2 input:first-child { width: 60px; flex: none; }
-.plan-ex-edit-row2 input:last-child { flex: 1; }
+.plan-ex-edit-row2 input:nth-child(1) { width: 52px; flex: none; }
+.plan-ex-edit-row2 input:nth-child(2) { flex: 1; min-width: 60px; }
+.plan-ex-edit-row2 select {
+  flex: 1;
+  min-width: 100px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 6px 7px;
+  font-size: 12px;
+}
 .plan-ex-edit-row3 {
   display: flex;
   gap: 6px;
