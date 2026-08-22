@@ -1,4 +1,4 @@
-const CACHE_NAME = "training-app-v3";
+const CACHE_NAME = "training-app-v4";
 const ASSETS = [
   "./",
   "./index.html",
@@ -15,7 +15,9 @@ const ASSETS = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME)
+      .then((cache) => Promise.all(ASSETS.map((url) => fetch(url, { cache: "no-store" }).then((res) => cache.put(url, res)))))
+      .then(() => self.skipWaiting())
   );
 });
 
@@ -29,10 +31,13 @@ self.addEventListener("activate", (event) => {
 
 // ネットワーク優先: オンライン時は常に最新を取得してキャッシュを更新し、
 // オフライン時のみキャッシュへフォールバックします（更新の取りこぼしを防ぐため）。
+// cache: "no-store" で、GitHub Pages等のHTTPキャッシュ(Cache-Control: max-age)を
+// 経由した古い応答を掴まないようにしています。
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+  const networkRequest = new Request(event.request, { cache: "no-store" });
   event.respondWith(
-    fetch(event.request)
+    fetch(networkRequest)
       .then((networkResponse) => {
         if (networkResponse && networkResponse.status === 200) {
           const clone = networkResponse.clone();
