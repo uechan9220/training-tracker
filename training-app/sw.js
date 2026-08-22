@@ -1,9 +1,10 @@
-const CACHE_NAME = "training-app-v5";
+const CACHE_NAME = "training-app-v6";
 const ASSETS = [
   "./",
   "./index.html",
   "./style.css",
   "./app.js",
+  "./cloud-sync.js",
   "./plan-data.js",
   "./exercise-catalog.js",
   "./meal-presets.js",

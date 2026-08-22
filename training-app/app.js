@@ -24,13 +24,97 @@ function loadJSON(key, fallback) {
   }
 }
 
-function saveJSON(key, value) {
+function saveLocalOnly(key, value) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
   } catch (e) {
     console.error("save failed", key, e);
     toast("保存に失敗しました（空き容量をご確認ください）");
   }
+}
+
+function saveJSON(key, value) {
+  saveLocalOnly(key, value);
+  scheduleCloudPush();
+}
+
+// ---------- cloud sync (Firebase) ----------
+// window.cloudSync が無い/失敗した場合はローカル保存のみで動作を続けます。
+
+let cloudPushTimer = null;
+
+function currentFullState() {
+  return {
+    plan: state.plan,
+    workoutLogs: state.workoutLogs,
+    weightLogs: state.weightLogs,
+    mealLogs: state.mealLogs,
+    settings: state.settings
+  };
+}
+
+function pushToCloudNow() {
+  if (!window.cloudSync || !window.cloudSync.isSignedIn()) return;
+  window.cloudSync.saveState(currentFullState()).catch(e => console.error("cloud save failed", e));
+}
+
+function scheduleCloudPush() {
+  if (!window.cloudSync || !window.cloudSync.isSignedIn()) return;
+  clearTimeout(cloudPushTimer);
+  cloudPushTimer = setTimeout(pushToCloudNow, 800);
+}
+
+function applyCloudState(data) {
+  state.plan = data.plan || clonePlan();
+  state.workoutLogs = data.workoutLogs || [];
+  state.weightLogs = data.weightLogs || [];
+  state.mealLogs = data.mealLogs || [];
+  state.settings = data.settings || defaultSettings();
+  saveLocalOnly(STORE_KEYS.plan, state.plan);
+  saveLocalOnly(STORE_KEYS.workouts, state.workoutLogs);
+  saveLocalOnly(STORE_KEYS.weights, state.weightLogs);
+  saveLocalOnly(STORE_KEYS.meals, state.mealLogs);
+  saveLocalOnly(STORE_KEYS.settings, state.settings);
+  renderAll();
+}
+
+function updateAccountUI(user) {
+  const card = document.getElementById("accountCard");
+  if (!user) { card.hidden = true; return; }
+  card.hidden = false;
+  document.getElementById("accountEmail").textContent = `ログイン中: ${user.email || user.displayName || ""}`;
+  document.getElementById("syncStatus").textContent = "この端末とGoogleアカウント間で自動的に同期されます。";
+}
+
+function initCloudSync() {
+  if (!window.cloudSync) return;
+  window.cloudSync.onAuthChange(async (user) => {
+    const authScreen = document.getElementById("authScreen");
+    const appEl = document.getElementById("app");
+    const tabBar = document.getElementById("tabBar");
+    if (user) {
+      authScreen.hidden = true;
+      appEl.hidden = false;
+      tabBar.hidden = false;
+      updateAccountUI(user);
+      try {
+        const cloudData = await window.cloudSync.loadState();
+        if (cloudData) {
+          applyCloudState(cloudData);
+        } else {
+          pushToCloudNow();
+        }
+        window.cloudSync.subscribeState((data) => applyCloudState(data));
+      } catch (e) {
+        console.error("cloud load failed", e);
+      }
+    } else {
+      updateAccountUI(null);
+      authScreen.hidden = false;
+      appEl.hidden = true;
+      tabBar.hidden = true;
+    }
+  });
 }
 
 function clonePlan() {
@@ -961,11 +1045,36 @@ function init() {
     if (!await showConfirm("本当によろしいですか？バックアップを取っていない場合は先にエクスポートしてください。")) return;
     Object.values(STORE_KEYS).forEach(k => localStorage.removeItem(k));
     state = { plan: clonePlan(), workoutLogs: [], weightLogs: [], mealLogs: [], settings: defaultSettings() };
+    pushToCloudNow();
     toast("削除しました");
     renderAll();
   });
 
+  document.getElementById("googleSignInBtn").addEventListener("click", async () => {
+    const errEl = document.getElementById("authError");
+    errEl.textContent = "";
+    if (!window.cloudSync) { errEl.textContent = "ログイン機能を読み込めませんでした。通信環境をご確認のうえ再読み込みしてください。"; return; }
+    try {
+      await window.cloudSync.signIn();
+    } catch (e) {
+      console.error("sign-in failed", e);
+      errEl.textContent = "ログインに失敗しました。もう一度お試しください。";
+    }
+  });
+
+  document.getElementById("signOutBtn").addEventListener("click", async () => {
+    if (!window.cloudSync) return;
+    if (!await showConfirm("ログアウトします。よろしいですか？")) return;
+    await window.cloudSync.signOutUser();
+  });
+
   renderAll();
+
+  if (window.cloudSync) {
+    initCloudSync();
+  } else {
+    window.addEventListener("cloudsync-ready", initCloudSync, { once: true });
+  }
 
   if ("serviceWorker" in navigator) {
     let reloadedForUpdate = false;

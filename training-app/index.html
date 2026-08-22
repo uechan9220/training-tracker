@@ -114,9 +114,16 @@
       <div id="calorieTargetResult" class="calc-result"></div>
     </div>
 
+    <div class="card" id="accountCard" hidden>
+      <h2>アカウント</h2>
+      <p class="hint" id="accountEmail"></p>
+      <p class="hint" id="syncStatus"></p>
+      <button id="signOutBtn" class="btn btn-ghost">ログアウト</button>
+    </div>
+
     <div class="card">
       <h2>データ管理</h2>
-      <p class="hint">記録はこの端末のブラウザ内にのみ保存されます。機種変更やSafariのデータ消去に備えて、定期的にバックアップをおすすめします。</p>
+      <p class="hint">この端末とGoogleアカウントに保存されます（ログイン時）。念のため、定期的にバックアップもおすすめします。</p>
       <button id="exportBtn" class="btn btn-ghost">バックアップを書き出す (JSON)</button>
       <label class="file-btn btn btn-ghost">
         バックアップを読み込む
@@ -158,6 +165,17 @@
   </div>
 </div>
 
+<div id="authScreen" class="auth-screen" hidden>
+  <div class="auth-box">
+    <div class="auth-icon">🏋️</div>
+    <h1>トレーニング記録</h1>
+    <p class="hint">Googleでログインすると、この端末以外からでも同じ記録を見たり続けたりできます。</p>
+    <button id="googleSignInBtn" class="btn btn-primary btn-block">Googleでログイン</button>
+    <p class="hint auth-error" id="authError"></p>
+  </div>
+</div>
+
+<script type="module" src="cloud-sync.js"></script>
 <script src="plan-data.js"></script>
 <script src="exercise-catalog.js"></script>
 <script src="meal-presets.js"></script>

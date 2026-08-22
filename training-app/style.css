@@ -419,6 +419,28 @@ label input, label select, label textarea {
 .tab-btn .tab-icon { font-size: 19px; }
 .tab-btn.active { color: var(--accent); }
 
+.auth-screen {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 40;
+}
+.auth-screen[hidden] { display: none; }
+.auth-box {
+  max-width: 320px;
+  width: 100%;
+  text-align: center;
+}
+.auth-icon { font-size: 40px; margin-bottom: 10px; }
+.auth-box h1 { font-size: 20px; margin: 0 0 12px; }
+.auth-box .hint { margin-bottom: 20px; }
+.auth-error:empty { display: none; }
+.auth-error { color: var(--danger); }
+
 .modal-overlay {
   position: fixed;
   inset: 0;
