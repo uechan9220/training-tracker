@@ -4,7 +4,7 @@
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js";
 import {
-  getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult,
+  getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
   onAuthStateChanged, signOut
 } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-auth.js";
 import {
@@ -28,6 +28,7 @@ const provider = new GoogleAuthProvider();
 let currentUser = null;
 let authResolved = false;
 let unsubscribeSnapshot = null;
+let lastAuthError = null;
 const authChangeListeners = [];
 
 function userDocRef(uid) {
@@ -42,7 +43,18 @@ onAuthStateChanged(auth, (user) => {
 
 getRedirectResult(auth).catch((err) => {
   console.error("google sign-in redirect error", err);
+  lastAuthError = err;
 });
+
+// Safariはリダイレクト方式のログインをサードパーティストレージ制限で
+// 完了できないことがあるため、まずポップアップ方式を試し、
+// ポップアップが使えない環境（主にホーム画面追加のスタンドアロン表示）では
+// リダイレクト方式に自動でフォールバックします。
+const POPUP_FALLBACK_CODES = [
+  "auth/popup-blocked",
+  "auth/operation-not-supported-in-this-environment",
+  "auth/cancelled-popup-request"
+];
 
 window.cloudSync = {
   isSignedIn() {
@@ -51,12 +63,25 @@ window.cloudSync = {
   getUser() {
     return currentUser;
   },
+  getLastError() {
+    return lastAuthError;
+  },
   onAuthChange(cb) {
     authChangeListeners.push(cb);
     if (authResolved) cb(currentUser);
   },
-  signIn() {
-    return signInWithRedirect(auth, provider);
+  async signIn() {
+    try {
+      await signInWithPopup(auth, provider);
+      lastAuthError = null;
+    } catch (e) {
+      if (POPUP_FALLBACK_CODES.includes(e.code)) {
+        await signInWithRedirect(auth, provider);
+      } else {
+        lastAuthError = e;
+        throw e;
+      }
+    }
   },
   signOutUser() {
     if (unsubscribeSnapshot) { unsubscribeSnapshot(); unsubscribeSnapshot = null; }

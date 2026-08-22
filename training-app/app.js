@@ -113,6 +113,10 @@ function initCloudSync() {
       authScreen.hidden = false;
       appEl.hidden = true;
       tabBar.hidden = true;
+      const lastError = window.cloudSync.getLastError && window.cloudSync.getLastError();
+      if (lastError) {
+        document.getElementById("authError").textContent = `ログイン処理中にエラーが発生しました（${lastError.code || lastError.message || lastError}）。もう一度お試しください。`;
+      }
     }
   });
 }
@@ -1058,7 +1062,7 @@ function init() {
       await window.cloudSync.signIn();
     } catch (e) {
       console.error("sign-in failed", e);
-      errEl.textContent = "ログインに失敗しました。もう一度お試しください。";
+      errEl.textContent = `ログインに失敗しました（${e.code || e.message || e}）。もう一度お試しください。`;
     }
   });
 
