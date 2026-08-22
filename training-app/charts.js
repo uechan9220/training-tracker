@@ -23,19 +23,27 @@ function niceStep(range) {
 // opts: { type: 'line'|'bar', color, unit, refLine: {value,label}, height }
 function renderChart(container, points, opts) {
   container.innerHTML = "";
-  if (!points || points.length === 0) {
-    const div = document.createElement("div");
-    div.className = "chart-empty";
-    div.textContent = "まだデータがありません";
-    container.appendChild(div);
-    return;
-  }
-
   const opt = Object.assign({ type: "line", color: "#3b82f6", unit: "", height: 220 }, opts);
   const W = 600, H = opt.height;
   const padL = 40, padR = 16, padT = 18, padB = 30;
   const plotW = W - padL - padR;
   const plotH = H - padT - padB;
+
+  if (!points || points.length === 0) {
+    // データが無くても土台（グリッド）だけは表示し、記録するたびに点が打たれていく見た目にする
+    const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "xMidYMid meet" });
+    const skeletonLines = 4;
+    for (let i = 0; i <= skeletonLines; i++) {
+      const y = padT + (plotH / skeletonLines) * i;
+      svg.appendChild(svgEl("line", { x1: padL, x2: W - padR, y1: y, y2: y, stroke: "#2c2f36", "stroke-width": 1 }));
+    }
+    svg.appendChild(svgEl("line", { x1: padL, x2: padL, y1: padT, y2: padT + plotH, stroke: "#2c2f36", "stroke-width": 1 }));
+    const t = svgEl("text", { x: W / 2, y: padT + plotH / 2, "text-anchor": "middle", "font-size": 13, fill: "#8a8f98" });
+    t.textContent = "まだデータがありません";
+    svg.appendChild(t);
+    container.appendChild(svg);
+    return;
+  }
 
   const values = points.map(p => p.value);
   let minV = Math.min(...values);

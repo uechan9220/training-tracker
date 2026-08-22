@@ -27,6 +27,8 @@ html, body {
 
 body {
   padding-bottom: calc(72px + env(safe-area-inset-bottom));
+  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .app-header {
@@ -378,7 +380,6 @@ label input, label select, label textarea {
 
 .chart-box { width: 100%; }
 .chart-box svg { width: 100%; height: auto; display: block; }
-.chart-empty { color: var(--muted); font-size: 13px; text-align: center; padding: 30px 0; }
 
 .calc-result {
   margin-top: 10px;
