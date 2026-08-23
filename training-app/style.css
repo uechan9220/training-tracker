@@ -179,7 +179,7 @@ body {
 
 .set-row {
   display: grid;
-  grid-template-columns: 24px 1fr 1fr;
+  grid-template-columns: 20px 1fr 1fr 26px;
   gap: 8px;
   align-items: center;
   margin-bottom: 6px;
@@ -194,6 +194,16 @@ body {
   padding: 7px 8px;
   font-size: 14px;
 }
+.del-set-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 15px;
+  cursor: pointer;
+  padding: 4px;
+  line-height: 1;
+}
+.del-set-btn:hover { color: var(--danger); }
 
 .set-log-actions {
   display: flex;

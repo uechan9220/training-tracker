@@ -417,7 +417,24 @@ function exerciseCaloriesForDate(iso) {
   return state.workoutLogs.filter(l => l.date === iso).reduce((s, l) => s + (l.calories || 0), 0);
 }
 
-function exerciseRowHTML(ex, i, iso) {
+function setRowHTML(idx) {
+  return `
+    <div class="set-row">
+      <div class="set-idx">${idx}</div>
+      <input type="number" inputmode="decimal" placeholder="重量kg" data-role="weight">
+      <input type="number" inputmode="numeric" placeholder="回数" data-role="reps">
+      <button type="button" class="del-set-btn" data-role="delset" title="このセットを削除">✕</button>
+    </div>`;
+}
+
+function renumberSetRows(panel) {
+  panel.querySelectorAll(".set-row").forEach((row, i) => {
+    row.querySelector(".set-idx").textContent = i + 1;
+  });
+}
+
+function exerciseRowHTML(ex, i, iso, opts) {
+  opts = opts || {};
   const kind = ex.kind || "strength";
   const todays = state.workoutLogs.filter(l => l.date === iso && l.exerciseName === ex.name);
   const doneToday = todays.length > 0;
@@ -449,12 +466,7 @@ function exerciseRowHTML(ex, i, iso) {
     const setsCount = ex.sets || 3;
     let rows = "";
     for (let s = 0; s < setsCount; s++) {
-      rows += `
-        <div class="set-row">
-          <div class="set-idx">${s + 1}</div>
-          <input type="number" inputmode="decimal" placeholder="重量kg" data-role="weight">
-          <input type="number" inputmode="numeric" placeholder="回数" data-role="reps">
-        </div>`;
+      rows += setRowHTML(s + 1);
     }
     panelBody = `${rows}<div class="set-log-actions"><button class="btn btn-sm" data-role="addset">＋セット追加</button><button class="btn btn-primary btn-sm" data-role="save">保存</button></div>`;
     if (doneToday) {
@@ -474,6 +486,7 @@ function exerciseRowHTML(ex, i, iso) {
         <div class="exercise-actions">
           <a class="yt-badge" href="${effectiveYtLink(ex)}" target="_blank" rel="noopener">▶ YT</a>
           <button class="log-toggle-btn ${doneToday ? "done" : ""}" data-role="logbtn">${doneToday ? "再記録" : "記録する"}</button>
+          ${opts.removable ? `<button class="del-btn" data-role="removeex" title="この種目を削除">✕</button>` : ""}
         </div>
       </div>
       <div class="set-log-panel" data-role="panel">
@@ -482,7 +495,8 @@ function exerciseRowHTML(ex, i, iso) {
     </div>`;
 }
 
-function setupExerciseRow(ex, i, iso, containerSelector) {
+function setupExerciseRow(ex, i, iso, containerSelector, opts) {
+  opts = opts || {};
   const kind = ex.kind || "strength";
   const row = document.querySelector(`${containerSelector || "#todayPlan"} .exercise-row[data-index="${i}"]`);
   if (!row) return;
@@ -496,10 +510,23 @@ function setupExerciseRow(ex, i, iso, containerSelector) {
   if (addSetBtn) {
     addSetBtn.addEventListener("click", () => {
       const idx = panel.querySelectorAll(".set-row").length;
-      const div = document.createElement("div");
-      div.className = "set-row";
-      div.innerHTML = `<div class="set-idx">${idx + 1}</div><input type="number" inputmode="decimal" placeholder="重量kg" data-role="weight"><input type="number" inputmode="numeric" placeholder="回数" data-role="reps">`;
-      panel.insertBefore(div, panel.querySelector(".set-log-actions"));
+      const temp = document.createElement("div");
+      temp.innerHTML = setRowHTML(idx + 1).trim();
+      panel.insertBefore(temp.firstElementChild, panel.querySelector(".set-log-actions"));
+    });
+    panel.addEventListener("click", (e) => {
+      const delBtn = e.target.closest('[data-role="delset"]');
+      if (!delBtn) return;
+      delBtn.closest(".set-row").remove();
+      renumberSetRows(panel);
+    });
+  }
+
+  const removeExBtn = row.querySelector('[data-role="removeex"]');
+  if (removeExBtn) {
+    removeExBtn.addEventListener("click", () => {
+      adhocExercises.splice(i, 1);
+      renderTodayExtra(iso);
     });
   }
 
@@ -562,7 +589,7 @@ function renderTodayPlanCard(day, iso) {
 
 function renderTodayExtra(iso) {
   const el = document.getElementById("todayExtra");
-  const rowsHtml = adhocExercises.map((ex, i) => exerciseRowHTML(ex, i, iso)).join("");
+  const rowsHtml = adhocExercises.map((ex, i) => exerciseRowHTML(ex, i, iso, { removable: true })).join("");
 
   el.innerHTML = `
     <h2>プラン外の記録</h2>
@@ -590,7 +617,7 @@ function renderTodayExtra(iso) {
     </div>
   `;
 
-  adhocExercises.forEach((ex, i) => setupExerciseRow(ex, i, iso, "#todayExtra"));
+  adhocExercises.forEach((ex, i) => setupExerciseRow(ex, i, iso, "#todayExtra", { removable: true }));
 
   const catCategory = document.getElementById("extraCatCategory");
   const catExercise = document.getElementById("extraCatExercise");
