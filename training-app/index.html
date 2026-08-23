@@ -27,6 +27,7 @@
   <section class="tab-panel" id="panel-today" data-panel="today">
     <div id="todaySummary" class="card summary-card"></div>
     <div id="todayPlan"></div>
+    <div id="todayExtra" class="card"></div>
     <div id="todayWeight" class="card"></div>
     <div id="todayMeals" class="card"></div>
   </section>
@@ -54,6 +55,7 @@
 
   <!-- グラフ -->
   <section class="tab-panel" id="panel-graphs" data-panel="graphs" hidden>
+    <div id="weekSummary" class="card summary-card"></div>
     <div class="card">
       <div class="card-title-row">
         <h2>体重推移</h2>
@@ -65,6 +67,18 @@
         </select>
       </div>
       <div id="weightChart" class="chart-box"></div>
+    </div>
+    <div class="card">
+      <div class="card-title-row">
+        <h2>体脂肪率推移</h2>
+        <select id="bodyFatRange" class="range-select">
+          <option value="14">2週間</option>
+          <option value="30" selected>1ヶ月</option>
+          <option value="90">3ヶ月</option>
+          <option value="9999">全期間</option>
+        </select>
+      </div>
+      <div id="bodyFatChart" class="chart-box"></div>
     </div>
     <div class="card">
       <div class="card-title-row">

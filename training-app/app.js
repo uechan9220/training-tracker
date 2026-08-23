@@ -144,6 +144,7 @@ let state = {
 let planEditMode = false;
 let recordFilter = "all";
 let selectedMealType = "朝";
+let adhocExercises = []; // 今日の「プラン外の記録」に一時的に追加された種目（ページ内のみ保持）
 
 // ---------- utils ----------
 
@@ -303,6 +304,7 @@ function renderToday() {
 
   renderTodaySummary(iso);
   renderTodayPlanCard(day, iso);
+  renderTodayExtra(iso);
   renderTodayWeight(iso);
   renderTodayMeals(iso);
 }
@@ -320,6 +322,7 @@ function renderTodaySummary(iso) {
       const diff = latest.weight - first.weight;
       sub = (diff > 0 ? "+" : "") + diff.toFixed(1) + "kg (開始比)";
     }
+    if (latest.bodyFatPercent != null) sub = (sub ? sub + "　" : "") + `体脂肪率 ${latest.bodyFatPercent}%`;
     weightHtml = `<div class="value">${latest.weight}kg</div><div class="sub">${sub}</div>`;
   }
 
@@ -433,9 +436,9 @@ function exerciseRowHTML(ex, i, iso) {
     </div>`;
 }
 
-function setupExerciseRow(ex, i, iso) {
+function setupExerciseRow(ex, i, iso, containerSelector) {
   const kind = ex.kind || "strength";
-  const row = document.querySelector(`#todayPlan .exercise-row[data-index="${i}"]`);
+  const row = document.querySelector(`${containerSelector || "#todayPlan"} .exercise-row[data-index="${i}"]`);
   if (!row) return;
   const panel = row.querySelector('[data-role="panel"]');
 
@@ -508,7 +511,61 @@ function renderTodayPlanCard(day, iso) {
       <div class="day-card-body">${bodyHtml}</div>
     </div>
   `;
-  day.exercises.forEach((ex, i) => setupExerciseRow(ex, i, iso));
+  day.exercises.forEach((ex, i) => setupExerciseRow(ex, i, iso, "#todayPlan"));
+}
+
+function renderTodayExtra(iso) {
+  const el = document.getElementById("todayExtra");
+  const rowsHtml = adhocExercises.map((ex, i) => exerciseRowHTML(ex, i, iso)).join("");
+
+  el.innerHTML = `
+    <h2>プラン外の記録</h2>
+    <p class="hint">今日の予定になくても、実際にやったトレーニングをここから記録できます。</p>
+    ${rowsHtml}
+    <div class="catalog-add">
+      <div class="catalog-add-row">
+        <select id="extraCatCategory" class="range-select">${catalogCategoryOptionsHTML()}</select>
+        <select id="extraCatExercise" class="range-select"></select>
+      </div>
+      <div class="catalog-add-actions">
+        <button class="btn btn-primary btn-sm" id="extraCatAddBtn">選んだ種目を追加</button>
+      </div>
+      <div class="inline-form" style="margin-top:10px">
+        <label style="flex:2">種目名（自由入力）<input type="text" id="extraFreeName" placeholder="例: 懸垂"></label>
+        <label>種類
+          <select id="extraFreeKind">
+            <option value="strength">筋トレ</option>
+            <option value="cardio">有酸素</option>
+            <option value="treadmill">ランニングマシン</option>
+          </select>
+        </label>
+      </div>
+      <button class="btn btn-sm btn-block" id="extraFreeAddBtn">自由入力で追加</button>
+    </div>
+  `;
+
+  adhocExercises.forEach((ex, i) => setupExerciseRow(ex, i, iso, "#todayExtra"));
+
+  const catCategory = document.getElementById("extraCatCategory");
+  const catExercise = document.getElementById("extraCatExercise");
+  populateCatalogExerciseSelect(catExercise, catCategory.value);
+  catCategory.addEventListener("change", () => populateCatalogExerciseSelect(catExercise, catCategory.value));
+
+  document.getElementById("extraCatAddBtn").addEventListener("click", () => {
+    const list = EXERCISE_CATALOG[catCategory.value] || [];
+    const picked = list[parseInt(catExercise.value, 10)];
+    if (!picked) return;
+    adhocExercises.push({ name: picked.name, sets: picked.sets, reps: picked.reps, equipment: picked.equipment || "", kind: picked.kind || "strength", customYtUrl: "" });
+    renderTodayExtra(iso);
+  });
+
+  document.getElementById("extraFreeAddBtn").addEventListener("click", () => {
+    const name = document.getElementById("extraFreeName").value.trim();
+    if (!name) { toast("種目名を入力してください"); return; }
+    const kind = document.getElementById("extraFreeKind").value;
+    adhocExercises.push({ name, sets: kind === "strength" ? 3 : 1, reps: kind === "strength" ? "10" : "", equipment: "", kind, customYtUrl: "" });
+    renderTodayExtra(iso);
+  });
 }
 
 function renderTodayWeight(iso) {
@@ -519,16 +576,20 @@ function renderTodayWeight(iso) {
     <h2>体重を記録</h2>
     <div class="inline-form">
       <label>体重 (kg)<input type="number" inputmode="decimal" id="weightInput" step="0.1" value="${existing ? existing.weight : ""}"></label>
+      <label>体脂肪率 (%・任意)<input type="number" inputmode="decimal" id="bodyFatInput" step="0.1" value="${existing && existing.bodyFatPercent != null ? existing.bodyFatPercent : ""}"></label>
       <button class="btn btn-primary" id="weightSaveBtn">保存</button>
     </div>
   `;
   document.getElementById("weightSaveBtn").addEventListener("click", () => {
     const v = parseFloat(document.getElementById("weightInput").value);
     if (isNaN(v) || v <= 0) { toast("体重を入力してください"); return; }
+    const fatRaw = document.getElementById("bodyFatInput").value;
+    const bodyFatPercent = fatRaw === "" ? undefined : parseFloat(fatRaw);
     if (existing) {
       existing.weight = v;
+      existing.bodyFatPercent = bodyFatPercent;
     } else {
-      state.weightLogs.push({ id: uid(), date: iso, weight: v });
+      state.weightLogs.push({ id: uid(), date: iso, weight: v, bodyFatPercent });
     }
     saveJSON(STORE_KEYS.weights, state.weightLogs);
     toast("体重を記録しました");
@@ -823,6 +884,7 @@ function recordItemHTML(item) {
     if (item.data.calories) sub += `${sub ? "・" : ""}約${Math.round(item.data.calories)}kcal`;
   } else if (item.type === "weight") {
     main = `${item.data.weight} kg`;
+    if (item.data.bodyFatPercent != null) sub = `体脂肪率 ${item.data.bodyFatPercent}%`;
   } else if (item.type === "meal") {
     main = `${escapeHtml(item.data.mealType)} ${escapeHtml(item.data.content)}`;
     sub = item.data.calories ? `${item.data.calories}kcal` : "";
@@ -847,8 +909,56 @@ function deleteRecord(type, id) {
 
 // ---------- graphs ----------
 
+function currentWeekRange() {
+  const now = new Date();
+  const dayIdx = (now.getDay() + 6) % 7; // 0=月 ... 6=日
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - dayIdx);
+  return { start: toISODate(monday), end: toISODate(now) };
+}
+
+function weeklySummary() {
+  const { start, end } = currentWeekRange();
+  const workouts = state.workoutLogs.filter(l => l.date >= start && l.date <= end);
+  const trainingDays = new Set(workouts.map(w => w.date)).size;
+  const exerciseKcal = workouts.reduce((s, w) => s + (w.calories || 0), 0);
+
+  const meals = state.mealLogs.filter(m => m.date >= start && m.date <= end);
+  const mealDays = new Set(meals.map(m => m.date)).size;
+  const totalIntake = meals.reduce((s, m) => s + (m.calories || 0), 0);
+  const avgIntake = mealDays > 0 ? totalIntake / mealDays : null;
+
+  const weekWeights = sortedWeightLogs().filter(w => w.date >= start && w.date <= end);
+  const weightChange = weekWeights.length >= 2
+    ? weekWeights[weekWeights.length - 1].weight - weekWeights[0].weight
+    : null;
+
+  return { trainingDays, exerciseKcal, avgIntake, weightChange };
+}
+
+function renderWeekSummary() {
+  const el = document.getElementById("weekSummary");
+  const s = weeklySummary();
+
+  const avgIntakeHtml = s.avgIntake != null
+    ? `<div class="value">${Math.round(s.avgIntake)}kcal</div>`
+    : `<div class="value" style="font-size:13px;color:var(--muted)">記録なし</div>`;
+  const weightChangeHtml = s.weightChange != null
+    ? `<div class="value">${s.weightChange > 0 ? "+" : ""}${s.weightChange.toFixed(1)}kg</div>`
+    : `<div class="value" style="font-size:13px;color:var(--muted)">記録2件未満</div>`;
+
+  el.innerHTML = `
+    <div class="summary-item"><div class="label">トレーニング日数</div><div class="value">${s.trainingDays}日</div></div>
+    <div class="summary-item"><div class="label">運動での消費</div><div class="value">${Math.round(s.exerciseKcal)}kcal</div></div>
+    <div class="summary-item"><div class="label">1日あたりの摂取平均</div>${avgIntakeHtml}</div>
+    <div class="summary-item"><div class="label">体重の変化（週内）</div>${weightChangeHtml}</div>
+  `;
+}
+
 function renderGraphs() {
+  renderWeekSummary();
   renderWeightChart();
+  renderBodyFatChart();
   renderCalorieChart();
   renderLiftChart();
 }
@@ -860,6 +970,13 @@ function renderWeightChart() {
   const opts = { type: "line", color: "#3b82f6", unit: "kg" };
   if (state.settings.goalWeightKg) opts.refLine = { value: state.settings.goalWeightKg, label: "目標 " + state.settings.goalWeightKg + "kg" };
   renderChart(document.getElementById("weightChart"), points, opts);
+}
+
+function renderBodyFatChart() {
+  const days = parseInt(document.getElementById("bodyFatRange").value, 10);
+  const logs = filterByRange(sortedWeightLogs(), days).filter(l => l.bodyFatPercent != null);
+  const points = logs.map(l => ({ label: formatShortDate(l.date), value: l.bodyFatPercent }));
+  renderChart(document.getElementById("bodyFatChart"), points, { type: "line", color: "#a855f7", unit: "%" });
 }
 
 function renderCalorieChart() {
@@ -977,6 +1094,7 @@ function init() {
   });
 
   document.getElementById("weightRange").addEventListener("change", renderWeightChart);
+  document.getElementById("bodyFatRange").addEventListener("change", renderBodyFatChart);
   document.getElementById("calorieRange").addEventListener("change", renderCalorieChart);
   document.getElementById("liftExerciseSelect").addEventListener("change", renderLiftChart);
 
