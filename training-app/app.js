@@ -137,7 +137,7 @@ function defaultSettings() {
 // 買い物リストアプリ側の「メニュー」タブで登録したレシピを、公開URL経由で取得して
 // 食事の記録にワンタップで追加できるようにします。未設定/取得失敗時は何も表示しません。
 
-const SHOPPING_LIST_MENU_URL = "https://PASTE_YOUR_GITHUB_USERNAME.github.io/PASTE_SHOPPING_LIST_REPO/menu-data.json";
+const SHOPPING_LIST_MENU_URL = "https://uechan9220.github.io/shopping-list-app/menu-data.json";
 let externalMenus = [];
 
 async function loadExternalMenus() {
