@@ -133,6 +133,38 @@ function defaultSettings() {
   return { heightCm: null, age: null, sex: "", goalWeightKg: null, activityFactor: 1.2, deficit: 500 };
 }
 
+// ---------- external menus (買い物リストアプリのメニューを参照) ----------
+// 買い物リストアプリ側の「メニュー」タブで登録したレシピを、公開URL経由で取得して
+// 食事の記録にワンタップで追加できるようにします。未設定/取得失敗時は何も表示しません。
+
+const SHOPPING_LIST_MENU_URL = "https://PASTE_YOUR_GITHUB_USERNAME.github.io/PASTE_SHOPPING_LIST_REPO/menu-data.json";
+let externalMenus = [];
+
+async function loadExternalMenus() {
+  if (SHOPPING_LIST_MENU_URL.includes("PASTE_YOUR_")) return;
+  try {
+    const res = await fetch(SHOPPING_LIST_MENU_URL, { cache: "no-store" });
+    if (!res.ok) throw new Error("status " + res.status);
+    const data = await res.json();
+    externalMenus = data.menus || [];
+    renderTodayMeals(toISODate(new Date()));
+  } catch (e) {
+    console.error("external menu load failed", e);
+  }
+}
+
+function externalMenuItemHTML(m, i) {
+  const n = m.nutritionPerServing || {};
+  return `<div class="meal-catalog-item">
+      <div class="meal-catalog-info">
+        <div class="meal-catalog-name">${escapeHtml(m.name)}</div>
+        <div class="meal-catalog-macro">${n.kcal ?? "-"}kcal　P${n.p ?? "-"}g F${n.f ?? "-"}g C${n.c ?? "-"}g</div>
+      </div>
+      <a class="yt-badge" href="${m.videoUrl}" target="_blank" rel="noopener">▶ 作り方</a>
+      <button class="btn btn-primary btn-sm" data-role="extmenuadd" data-idx="${i}">＋追加</button>
+    </div>`;
+}
+
 let state = {
   plan: loadJSON(STORE_KEYS.plan, null) || clonePlan(),
   workoutLogs: loadJSON(STORE_KEYS.workouts, []),
@@ -207,6 +239,20 @@ function computeCalorieTarget() {
   const tdee = bmr * (s.activityFactor || 1.2);
   const target = tdee - (s.deficit || 0);
   return { bmr, tdee, target, weight };
+}
+
+// PFCの目安: タンパク質は体重1kgあたり2.0g（筋トレをする人向けの一般的な目安）、
+// 脂質は目標カロリーの25%、炭水化物はカロリーの残りから算出します。
+function computePfcTargets() {
+  const calc = computeCalorieTarget();
+  if (!calc) return null;
+  const proteinG = 2.0 * calc.weight;
+  const proteinKcal = proteinG * 4;
+  const fatKcal = calc.target * 0.25;
+  const fatG = fatKcal / 9;
+  const carbKcal = Math.max(0, calc.target - proteinKcal - fatKcal);
+  const carbG = carbKcal / 4;
+  return { proteinG, fatG, carbG };
 }
 
 // 目標体重までの目安ペース（現在の摂取カロリー赤字設定から、7700kcal/kgの目安で概算）
@@ -642,6 +688,11 @@ function renderTodayMeals(iso) {
     <div class="meal-catalog-list">${presets.map((p, i) => mealCatalogItemHTML(p, i)).join("")}</div>
   ` : "";
 
+  const externalMenuHtml = externalMenus.length > 0 ? `
+    <p class="hint">買い物リストアプリに登録したメニューから追加できます。</p>
+    <div class="meal-catalog-list">${externalMenus.map((m, i) => externalMenuItemHTML(m, i)).join("")}</div>
+  ` : "";
+
   const listHtml = meals.length === 0
     ? `<div class="empty-state">まだ記録がありません</div>`
     : meals.map(m => mealItemHTML(m)).join("");
@@ -655,6 +706,7 @@ function renderTodayMeals(iso) {
     <h2>今日の食事</h2>
     <div class="chip-row">${chips}</div>
     ${catalogHtml}
+    ${externalMenuHtml}
     <p class="hint">候補になければ自由入力できます。PFCを入力すればカロリー欄は空欄のままでも自動計算されます。</p>
     <div class="inline-form">
       <label style="flex:2">内容<input type="text" id="mealContentInput" placeholder="例: 鶏胸肉とごはん"></label>
@@ -680,6 +732,18 @@ function renderTodayMeals(iso) {
       state.mealLogs.push({ id: uid(), date: iso, mealType: selectedMealType, content: p.name, calories: p.kcal, p: p.p, f: p.f, c: p.c });
       saveJSON(STORE_KEYS.meals, state.mealLogs);
       toast(`${p.name}を記録しました`);
+      renderTodayMeals(iso);
+      renderTodaySummary(iso);
+    });
+  });
+  el.querySelectorAll('[data-role="extmenuadd"]').forEach(btn => {
+    btn.addEventListener("click", () => {
+      const m = externalMenus[parseInt(btn.dataset.idx, 10)];
+      if (!m) return;
+      const n = m.nutritionPerServing || {};
+      state.mealLogs.push({ id: uid(), date: iso, mealType: selectedMealType, content: m.name, calories: n.kcal || 0, p: n.p || 0, f: n.f || 0, c: n.c || 0 });
+      saveJSON(STORE_KEYS.meals, state.mealLogs);
+      toast(`${m.name}を記録しました`);
       renderTodayMeals(iso);
       renderTodaySummary(iso);
     });
@@ -985,7 +1049,49 @@ function renderGraphs() {
   renderWeightChart();
   renderBodyFatChart();
   renderCalorieChart();
+  renderProteinChart();
+  renderFatChart();
+  renderCarbChart();
   renderLiftChart();
+}
+
+function dailyMacroPoints(days, macroKey) {
+  const mealsAsc = [...state.mealLogs].sort((a, b) => a.date.localeCompare(b.date));
+  const meals = filterByRange(mealsAsc, days);
+  const byDate = {};
+  meals.forEach(m => {
+    if (m[macroKey] == null) return;
+    byDate[m.date] = (byDate[m.date] || 0) + m[macroKey];
+  });
+  const dates = Object.keys(byDate).sort();
+  return dates.map(d => ({ label: formatShortDate(d), value: Math.round(byDate[d]) }));
+}
+
+function renderProteinChart() {
+  const days = parseInt(document.getElementById("proteinRange").value, 10);
+  const points = dailyMacroPoints(days, "p");
+  const opts = { type: "line", color: "#3b82f6", unit: "g" };
+  const pfc = computePfcTargets();
+  if (pfc) opts.refLine = { value: Math.round(pfc.proteinG), label: "目標 " + Math.round(pfc.proteinG) + "g" };
+  renderChart(document.getElementById("proteinChart"), points, opts);
+}
+
+function renderFatChart() {
+  const days = parseInt(document.getElementById("fatRange").value, 10);
+  const points = dailyMacroPoints(days, "f");
+  const opts = { type: "line", color: "#f59e0b", unit: "g" };
+  const pfc = computePfcTargets();
+  if (pfc) opts.refLine = { value: Math.round(pfc.fatG), label: "目標 " + Math.round(pfc.fatG) + "g" };
+  renderChart(document.getElementById("fatChart"), points, opts);
+}
+
+function renderCarbChart() {
+  const days = parseInt(document.getElementById("carbRange").value, 10);
+  const points = dailyMacroPoints(days, "c");
+  const opts = { type: "line", color: "#a855f7", unit: "g" };
+  const pfc = computePfcTargets();
+  if (pfc) opts.refLine = { value: Math.round(pfc.carbG), label: "目標 " + Math.round(pfc.carbG) + "g" };
+  renderChart(document.getElementById("carbChart"), points, opts);
 }
 
 function renderWeightChart() {
@@ -1068,6 +1174,10 @@ function updateCalorieTargetResult() {
     return;
   }
   let text = `現在の体重(${calc.weight}kg)から算出: 基礎代謝 約${Math.round(calc.bmr)}kcal / 消費目安 約${Math.round(calc.tdee)}kcal → 目標摂取 約${Math.round(calc.target)}kcal\n※ 筋トレ・有酸素をした日は、その日の消費カロリー分だけ目標摂取カロリーに加算されます（今日タブに表示）。`;
+  const pfc = computePfcTargets();
+  if (pfc) {
+    text += `\n\nPFCの目安（1日）: P ${Math.round(pfc.proteinG)}g ／ F ${Math.round(pfc.fatG)}g ／ C ${Math.round(pfc.carbG)}g\n※ タンパク質は体重1kgあたり2.0g、脂質は目標カロリーの25%、炭水化物は残りから算出した目安です。`;
+  }
   const proj = goalProjection();
   if (proj) {
     if (proj.reached) {
@@ -1121,6 +1231,9 @@ function init() {
   document.getElementById("weightRange").addEventListener("change", renderWeightChart);
   document.getElementById("bodyFatRange").addEventListener("change", renderBodyFatChart);
   document.getElementById("calorieRange").addEventListener("change", renderCalorieChart);
+  document.getElementById("proteinRange").addEventListener("change", renderProteinChart);
+  document.getElementById("fatRange").addEventListener("change", renderFatChart);
+  document.getElementById("carbRange").addEventListener("change", renderCarbChart);
   document.getElementById("liftExerciseSelect").addEventListener("change", renderLiftChart);
 
   document.getElementById("saveSettingsBtn").addEventListener("click", () => {
@@ -1216,6 +1329,7 @@ function init() {
   });
 
   renderAll();
+  loadExternalMenus();
 
   if (window.cloudSync) {
     initCloudSync();
