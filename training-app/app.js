@@ -655,10 +655,15 @@ function renderTodayMeals(iso) {
     <h2>今日の食事</h2>
     <div class="chip-row">${chips}</div>
     ${catalogHtml}
-    <p class="hint">候補になければ自由入力できます。カロリー・PFCは目安値です。</p>
+    <p class="hint">候補になければ自由入力できます。PFCを入力すればカロリー欄は空欄のままでも自動計算されます。</p>
     <div class="inline-form">
       <label style="flex:2">内容<input type="text" id="mealContentInput" placeholder="例: 鶏胸肉とごはん"></label>
       <label>カロリー<input type="number" id="mealCalInput" inputmode="numeric" placeholder="kcal"></label>
+    </div>
+    <div class="inline-form">
+      <label>P (g・任意)<input type="number" id="mealPInput" inputmode="decimal" placeholder="0"></label>
+      <label>F (g・任意)<input type="number" id="mealFInput" inputmode="decimal" placeholder="0"></label>
+      <label>C (g・任意)<input type="number" id="mealCInput" inputmode="decimal" placeholder="0"></label>
     </div>
     <button class="btn btn-primary btn-block" id="mealAddBtn">追加</button>
     <div style="margin-top:12px">${listHtml}</div>
@@ -681,9 +686,29 @@ function renderTodayMeals(iso) {
   });
   el.querySelector("#mealAddBtn").addEventListener("click", () => {
     const content = document.getElementById("mealContentInput").value.trim();
-    const cal = parseInt(document.getElementById("mealCalInput").value, 10);
     if (!content) { toast("内容を入力してください"); return; }
-    state.mealLogs.push({ id: uid(), date: iso, mealType: selectedMealType, content, calories: isNaN(cal) ? 0 : cal });
+
+    const pRaw = document.getElementById("mealPInput").value;
+    const fRaw = document.getElementById("mealFInput").value;
+    const cRaw = document.getElementById("mealCInput").value;
+    const p = pRaw === "" ? null : parseFloat(pRaw);
+    const f = fRaw === "" ? null : parseFloat(fRaw);
+    const c = cRaw === "" ? null : parseFloat(cRaw);
+    const hasPfc = p != null || f != null || c != null;
+
+    const calRaw = document.getElementById("mealCalInput").value;
+    let cal = calRaw === "" ? null : parseInt(calRaw, 10);
+    if (cal == null && hasPfc) {
+      cal = Math.round(4 * (p || 0) + 9 * (f || 0) + 4 * (c || 0));
+    }
+
+    const entry = { id: uid(), date: iso, mealType: selectedMealType, content, calories: cal || 0 };
+    if (hasPfc) {
+      entry.p = p || 0;
+      entry.f = f || 0;
+      entry.c = c || 0;
+    }
+    state.mealLogs.push(entry);
     saveJSON(STORE_KEYS.meals, state.mealLogs);
     toast("記録しました");
     renderTodayMeals(iso);
